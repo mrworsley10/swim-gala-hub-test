@@ -14,6 +14,7 @@ from supabase import create_client, Client
 # --- DEFINE PAGE NAMES GLOBALLY ---
 VIEW_LOGGER = "⏱ Live Race Logger"
 VIEW_OVERVIEW = "📊 Coach Overview"
+VIEW_SUMMARY = "📈 Team Summary"
 VIEW_WALL = "📋 Swimmer Wall Planner"
 VIEW_TM = "🚩 TM Marshalling Info"
 
@@ -89,9 +90,9 @@ if "room_pin" not in st.session_state: st.session_state["room_pin"] = None
 if "last_url" not in st.session_state: st.session_state["last_url"] = ""
 
 st.sidebar.title("Navigation")
-page_selection = st.sidebar.radio("Select View", [VIEW_LOGGER, VIEW_OVERVIEW, VIEW_WALL, VIEW_TM])
+page_selection = st.sidebar.radio("Select View", [VIEW_LOGGER, VIEW_OVERVIEW, VIEW_SUMMARY, VIEW_WALL, VIEW_TM])
 
-icon_title = "⏱ LOGGER" if page_selection == VIEW_LOGGER else "📊 OVERVIEW" if page_selection == VIEW_OVERVIEW else "📋 PLANNER" if page_selection == VIEW_WALL else "🚩 TRACKER"
+icon_title = "⏱ LOGGER" if page_selection == VIEW_LOGGER else "📊 OVERVIEW" if page_selection == VIEW_OVERVIEW else "📈 SUMMARY" if page_selection == VIEW_SUMMARY else "📋 PLANNER" if page_selection == VIEW_WALL else "🚩 TRACKER"
 sync_class = "sync-live" if st.session_state["room_pin"] else "sync-offline"
 sync_text = f"🟢 Room: {st.session_state['room_pin']}" if st.session_state["room_pin"] else "⚪ Offline"
 
@@ -649,25 +650,9 @@ if not df.empty:
 else: df_final = df
 
 
-# --- ⏱ LIVE RACE LOGGER (NEW SWIPE CARD INTERFACE) ---
+# --- ⏱ LIVE RACE LOGGER (ULTRA-CLEAN UI) ---
 if page_selection == VIEW_LOGGER:
     if not df_final.empty:
-        ach_u, not_u = df_final["Achieved Time"].astype(str).str.upper(), df_final["Coach Notes"].astype(str).str.upper()
-        dq, dnc = int((ach_u.str.contains("DQ") | not_u.str.contains("DQ")).sum()), int((ach_u.str.contains("DNC|WD|WITHDRAWN") | not_u.str.contains("DNC|WD|WITHDRAWN")).sum())
-        s_done = len(df_final[(df_final["Achieved Time"] != "") & (~ach_u.str.contains("DNC|WD|WITHDRAWN|DQ")) & (~not_u.str.contains("DNC|WD|WITHDRAWN|DQ"))])
-        s_rem = max(0, len(df_final) - s_done - dq - dnc)
-        
-        st.markdown(f"""
-        <div class="status-pill"><span class="status-dot">●</span> Live tracking active · {datetime.now().strftime("%H:%M")}</div>
-        <div class="kpi-container">
-            <div class="kpi-card"><div class="kpi-val">{s_done}</div><div class="kpi-label">SWIMS DONE</div></div>
-            <div class="kpi-card"><div class="kpi-val green">{df_final["Var vs Entry"].str.startswith("✅").sum()}</div><div class="kpi-label">FASTER THAN ENTRY</div></div>
-            <div class="kpi-card"><div class="kpi-val red">{dq}</div><div class="kpi-label">DISQUALIFIED</div></div>
-            <div class="kpi-card"><div class="kpi-val orange">{dnc}</div><div class="kpi-label">WITHDRAWN</div></div>
-            <div class="kpi-card"><div class="kpi-val">{s_rem}</div><div class="kpi-label">SWIMS REMAINING</div></div>
-        </div>
-        """, unsafe_allow_html=True)
-        
         st.markdown("### 📱 Poolside Time Logger")
         
         live_races = df_final[~df_final["Achieved Time"].astype(str).str.upper().str.contains("DNC|WD|WITHDRAWN")].copy()
@@ -737,7 +722,7 @@ if page_selection == VIEW_LOGGER:
                                         on_change=auto_save_inputs,
                                         args=(original_id, time_key, notes_key))
             
-            # 6. Streamlined Navigation Buttons (Save button removed)
+            # 6. Streamlined Navigation Buttons
             col1, col2 = st.columns([1, 1])
             
             with col1:
@@ -746,12 +731,12 @@ if page_selection == VIEW_LOGGER:
                     st.rerun()
                     
             with col2:
-                # Made this the primary highlighted action button for the coach
                 if st.button("Next Swimmer ➡️", type="primary", use_container_width=True, disabled=(st.session_state.race_idx == len(live_races) - 1)):
                     st.session_state.race_idx += 1
                     st.rerun()
     else: 
         st.info("👈 Load data to begin.")
+
 
 # --- 📊 COACH OVERVIEW (READ-ONLY GRID) ---
 elif page_selection == VIEW_OVERVIEW:
@@ -775,7 +760,6 @@ elif page_selection == VIEW_OVERVIEW:
             sess_df = df_final[df_final["Session"] == sess]
             for event in sorted(sess_df["Event"].unique(), key=get_event_num):
                 edf = sess_df[sess_df["Event"] == event].sort_values(by=["_sort_heat", "_sort_lane"]).copy()
-                # Use multiline=False so the targets fit on a single line with | separators in the grid
                 edf["Target +/-"] = [get_target_analysis(r, st.session_state["target_df"], not st.session_state["target_df"].empty, multiline=False) for _, r in edf.iterrows()]
                 
                 with st.expander(f"🏊 {event} ({len(edf)} Swimmers)", expanded=False):
@@ -786,6 +770,56 @@ elif page_selection == VIEW_OVERVIEW:
                         use_container_width=True
                     )
     else:
+        st.info("👈 Load data to begin.")
+
+
+# --- 📈 TEAM SUMMARY (HEAD COACH DASHBOARD) ---
+elif page_selection == VIEW_SUMMARY:
+    if not df_final.empty:
+        st.markdown("### 🏆 Gala Performance Dashboard")
+        
+        # Calculate standard KPIs
+        ach_u, not_u = df_final["Achieved Time"].astype(str).str.upper(), df_final["Coach Notes"].astype(str).str.upper()
+        dq, dnc = int((ach_u.str.contains("DQ") | not_u.str.contains("DQ")).sum()), int((ach_u.str.contains("DNC|WD|WITHDRAWN") | not_u.str.contains("DNC|WD|WITHDRAWN")).sum())
+        s_done = len(df_final[(df_final["Achieved Time"] != "") & (~ach_u.str.contains("DNC|WD|WITHDRAWN|DQ")) & (~not_u.str.contains("DNC|WD|WITHDRAWN|DQ"))])
+        s_rem = max(0, len(df_final) - s_done - dq - dnc)
+        
+        # Calculate Target Achievements (County / Regional)
+        county_achieved = 0
+        regional_achieved = 0
+        
+        if not st.session_state["target_df"].empty:
+            for _, r in df_final.iterrows():
+                ach_sec = time_to_seconds(r.get("Achieved Time"))
+                if ach_sec is not None:
+                    match = st.session_state["target_df"][(st.session_state["target_df"]['Gender'] == extract_gender(r.get('Event', ''))) & (st.session_state["target_df"]['Age'] == safe_int(r.get('Age'), -1)) & (st.session_state["target_df"]['Event'].str.lower() == extract_standard_event(r.get('Event', '')).lower())]
+                    if not match.empty:
+                        c_sec = time_to_seconds(match.iloc[0].get('County_Time', ""))
+                        r_sec = time_to_seconds(match.iloc[0].get('Regional_Time', ""))
+                        
+                        # Check if achieved time is faster (less) than or equal to the target time
+                        if c_sec and ach_sec <= c_sec: county_achieved += 1
+                        if r_sec and ach_sec <= r_sec: regional_achieved += 1
+
+        st.markdown(f"""
+        <div class="status-pill"><span class="status-dot">●</span> Live tracking active · {datetime.now().strftime("%H:%M")}</div>
+        
+        <h4 style="margin-top: 20px; color: #cbd5e1;">General Metrics</h4>
+        <div class="kpi-container">
+            <div class="kpi-card"><div class="kpi-val">{s_done}</div><div class="kpi-label">SWIMS DONE</div></div>
+            <div class="kpi-card"><div class="kpi-val green">{df_final["Var vs Entry"].str.startswith("✅").sum()}</div><div class="kpi-label">FASTER THAN ENTRY</div></div>
+            <div class="kpi-card"><div class="kpi-val red">{dq}</div><div class="kpi-label">DISQUALIFIED</div></div>
+            <div class="kpi-card"><div class="kpi-val orange">{dnc}</div><div class="kpi-label">WITHDRAWN</div></div>
+            <div class="kpi-card"><div class="kpi-val">{s_rem}</div><div class="kpi-label">SWIMS REMAINING</div></div>
+        </div>
+        
+        <h4 style="margin-top: 10px; color: #cbd5e1;">🎯 Target Metrics</h4>
+        <div class="kpi-container">
+            <div class="kpi-card" style="border-top-color: #3b82f6;"><div class="kpi-val" style="color: #3b82f6 !important;">{county_achieved}</div><div class="kpi-label">COUNTY QUALIFIERS</div></div>
+            <div class="kpi-card" style="border-top-color: #8b5cf6;"><div class="kpi-val" style="color: #8b5cf6 !important;">{regional_achieved}</div><div class="kpi-label">REGIONAL QUALIFIERS</div></div>
+        </div>
+        """, unsafe_allow_html=True)
+    else: 
         st.info("👈 Load data to begin.")
 
 
