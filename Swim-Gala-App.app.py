@@ -12,7 +12,8 @@ import random
 from supabase import create_client, Client
 
 # --- DEFINE PAGE NAMES GLOBALLY ---
-VIEW_COACH = "⏱ Coach Race Info"
+VIEW_LOGGER = "⏱ Live Race Logger"
+VIEW_OVERVIEW = "📊 Coach Overview"
 VIEW_WALL = "📋 Swimmer Wall Planner"
 VIEW_TM = "🚩 TM Marshalling Info"
 
@@ -88,9 +89,9 @@ if "room_pin" not in st.session_state: st.session_state["room_pin"] = None
 if "last_url" not in st.session_state: st.session_state["last_url"] = ""
 
 st.sidebar.title("Navigation")
-page_selection = st.sidebar.radio("Select View", [VIEW_COACH, VIEW_WALL, VIEW_TM])
+page_selection = st.sidebar.radio("Select View", [VIEW_LOGGER, VIEW_OVERVIEW, VIEW_WALL, VIEW_TM])
 
-icon_title = "⏱ COACH" if page_selection == VIEW_COACH else "📋 PLANNER" if page_selection == VIEW_WALL else "🚩 TRACKER"
+icon_title = "⏱ LOGGER" if page_selection == VIEW_LOGGER else "📊 OVERVIEW" if page_selection == VIEW_OVERVIEW else "📋 PLANNER" if page_selection == VIEW_WALL else "🚩 TRACKER"
 sync_class = "sync-live" if st.session_state["room_pin"] else "sync-offline"
 sync_text = f"🟢 Room: {st.session_state['room_pin']}" if st.session_state["room_pin"] else "⚪ Offline"
 
@@ -445,7 +446,7 @@ def compute_gala_schedule_times(df_input, session_starts, pace):
             current_dt += timedelta(seconds=heat_dur * max_heat)
     return calc_df
 
-def get_target_analysis(row, target_df, has_targets):
+def get_target_analysis(row, target_df, has_targets, multiline=True):
     ach_sec, ent_sec = time_to_seconds(row.get('Achieved Time')), time_to_seconds(row.get('Entry Time'))
     c_sec, r_sec = None, None
     if has_targets:
@@ -453,6 +454,8 @@ def get_target_analysis(row, target_df, has_targets):
         if not match.empty:
             c_sec = time_to_seconds(match.iloc[0].get('County_Time', ""))
             r_sec = time_to_seconds(match.iloc[0].get('Regional_Time', ""))
+            
+    separator = "<br>" if multiline else " | "
             
     if ach_sec is not None:
         res = []
@@ -462,14 +465,14 @@ def get_target_analysis(row, target_df, has_targets):
             v_c, v_r = calculate_variance(ach_sec, c_sec), calculate_variance(ach_sec, r_sec)
             if v_c and v_c != "N/A": res.append(f"County: {v_c}")
             if v_r and v_r != "N/A": res.append(f"Region: {v_r}")
-        return "<br>".join(res) if res else "Logged"
+        return separator.join(res) if res else "Logged"
     else:
         if has_targets:
             res = []
             v_c, v_r = calculate_variance(ent_sec, c_sec), calculate_variance(ent_sec, r_sec)
             if v_c and v_c != "N/A": res.append(f"County: {v_c}")
             if v_r and v_r != "N/A": res.append(f"Region: {v_r}")
-            return "<br>".join(res) if res else "No Targets"
+            return separator.join(res) if res else "No Targets"
         return ""
 
 # --- SMART TM PLACEMENT SCRAPER ENGINE ---
@@ -646,10 +649,9 @@ if not df.empty:
 else: df_final = df
 
 
-# --- ⏱ COACH RACE INFO VIEW (NEW SWIPE CARD INTERFACE) ---
-if page_selection == VIEW_COACH:
+# --- ⏱ LIVE RACE LOGGER (NEW SWIPE CARD INTERFACE) ---
+if page_selection == VIEW_LOGGER:
     if not df_final.empty:
-        # Calculate KPIs
         ach_u, not_u = df_final["Achieved Time"].astype(str).str.upper(), df_final["Coach Notes"].astype(str).str.upper()
         dq, dnc = int((ach_u.str.contains("DQ") | not_u.str.contains("DQ")).sum()), int((ach_u.str.contains("DNC|WD|WITHDRAWN") | not_u.str.contains("DNC|WD|WITHDRAWN")).sum())
         s_done = len(df_final[(df_final["Achieved Time"] != "") & (~ach_u.str.contains("DNC|WD|WITHDRAWN|DQ")) & (~not_u.str.contains("DNC|WD|WITHDRAWN|DQ"))])
@@ -668,7 +670,6 @@ if page_selection == VIEW_COACH:
         
         st.markdown("### 📱 Poolside Time Logger")
         
-        # 1. Filter out withdrawn/DNC swimmers and sort chronologically by session, event number, heat, lane
         live_races = df_final[~df_final["Achieved Time"].astype(str).str.upper().str.contains("DNC|WD|WITHDRAWN")].copy()
         live_races["_event_num"] = live_races["Event"].apply(get_event_num)
         live_races = live_races.sort_values(by=["Session", "_event_num", "_sort_heat", "_sort_lane"]).reset_index(drop=True)
@@ -676,25 +677,20 @@ if page_selection == VIEW_COACH:
         if live_races.empty:
             st.success("All active races have been logged or withdrawn!")
         else:
-            # 2. Initialize the playlist index
             if "race_idx" not in st.session_state:
                 st.session_state.race_idx = 0
                 
-            # Ensure index doesn't go out of bounds if data refreshes or decreases
             if st.session_state.race_idx >= len(live_races):
                 st.session_state.race_idx = len(live_races) - 1
             if st.session_state.race_idx < 0:
                 st.session_state.race_idx = 0
 
-            # 3. Get the current swimmer's data
             current_race = live_races.iloc[st.session_state.race_idx]
             original_id = current_race.get("id", None)
             
-            # --- NEW: Calculate the target variance string (now stacked vertically) ---
-            target_str = get_target_analysis(current_race, st.session_state["target_df"], not st.session_state["target_df"].empty)
+            target_str = get_target_analysis(current_race, st.session_state["target_df"], not st.session_state["target_df"].empty, multiline=True)
             target_html = f"<div style='margin-top: 8px; color: #4ade80; font-size: 1.1rem; font-weight: bold; background: #0f172a; padding: 10px; border-radius: 8px; display: inline-block; line-height: 1.6;'>{target_str}</div>" if target_str else ""
             
-            # 4. Build the Mobile Card UI
             st.markdown(f"""
             <div style="background-color: #1e293b; padding: 20px; border-radius: 12px; border-top: 5px solid #facc15; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; margin-bottom: 15px;">
                 <h4 style="color: #94a3b8; margin-bottom: 0;">Sess {current_race.get('Session', '')} | Event {current_race.get('Event', '')}</h4>
@@ -710,7 +706,6 @@ if page_selection == VIEW_COACH:
             </div>
             """, unsafe_allow_html=True)
             
-            # 5. The Input Fields
             new_time = st.text_input("⏱ Enter Achieved Time (e.g. 1:05.23, DQ, DNC)", 
                                      value=current_race.get('Achieved Time', ''), 
                                      key=f"time_input_{original_id}_{st.session_state.race_idx}")
@@ -719,7 +714,6 @@ if page_selection == VIEW_COACH:
                                         value=current_race.get('Coach Notes', ''), 
                                         key=f"notes_input_{original_id}_{st.session_state.race_idx}")
             
-            # 6. Navigation & Save Buttons
             col1, col2, col3 = st.columns([1, 1, 1])
             
             with col1:
@@ -728,14 +722,11 @@ if page_selection == VIEW_COACH:
                     st.rerun()
                     
             with col2:
-                # Save button updates the database and the dataframe
                 if st.button("💾 Save", type="primary", use_container_width=True):
                     formatted_time = format_time_input(new_time)
                     if original_id is not None:
-                        # Update DB
                         safe_update_db(original_id, "achieved_time", formatted_time)
                         safe_update_db(original_id, "coach_notes", coach_notes)
-                        # Update local dataframe
                         mask = st.session_state["gala_df"]["id"] == original_id
                         st.session_state["gala_df"].loc[mask, "Achieved Time"] = formatted_time
                         st.session_state["gala_df"].loc[mask, "Coach Notes"] = coach_notes
@@ -748,6 +739,42 @@ if page_selection == VIEW_COACH:
                     st.session_state.race_idx += 1
                     st.rerun()
     else: 
+        st.info("👈 Load data to begin.")
+
+
+# --- 📊 COACH OVERVIEW (READ-ONLY GRID) ---
+elif page_selection == VIEW_OVERVIEW:
+    if not df_final.empty:
+        st.markdown("### 📊 Full Heat Sheet Overview")
+        st.info("💡 This grid is read-only for session planning. Switch to **Live Race Logger** to enter times.")
+        
+        cfg = {
+            "Heat": st.column_config.TextColumn("Heat", width="small"), 
+            "Lane": st.column_config.TextColumn("Lane", width="small"), 
+            "Age": st.column_config.TextColumn("Age", width="small"), 
+            "Entry Time": st.column_config.TextColumn("Entry Time", width="medium"), 
+            "Achieved Time": st.column_config.TextColumn("Achieved Time", width="medium"), 
+            "Swimmer": st.column_config.TextColumn("Swimmer", width="medium"), 
+            "Target +/-": st.column_config.TextColumn("Target +/-", width="large"), 
+            "Coach Notes": st.column_config.TextColumn("Coach Notes", width="large")
+        }
+        
+        for sess in sorted(df_final["Session"].unique()):
+            st.markdown(f"<h3>Session {sess}</h3>", unsafe_allow_html=True)
+            sess_df = df_final[df_final["Session"] == sess]
+            for event in sorted(sess_df["Event"].unique(), key=get_event_num):
+                edf = sess_df[sess_df["Event"] == event].sort_values(by=["_sort_heat", "_sort_lane"]).copy()
+                # Use multiline=False so the targets fit on a single line with | separators in the grid
+                edf["Target +/-"] = [get_target_analysis(r, st.session_state["target_df"], not st.session_state["target_df"].empty, multiline=False) for _, r in edf.iterrows()]
+                
+                with st.expander(f"🏊 {event} ({len(edf)} Swimmers)", expanded=False):
+                    st.dataframe(
+                        edf[["Heat", "Lane", "Swimmer", "Age", "Entry Time", "Achieved Time", "Target +/-", "Coach Notes"]], 
+                        column_config=cfg, 
+                        hide_index=True, 
+                        use_container_width=True
+                    )
+    else:
         st.info("👈 Load data to begin.")
 
 
@@ -771,8 +798,6 @@ elif page_selection == VIEW_WALL:
 # --- 🚩 TM MARSHALLING INFO VIEW ---
 elif page_selection == VIEW_TM:
     if not df_final.empty:
-        
-        # --- OFFICIAL PLACEMENTS SYNC BUTTON ---
         st.markdown("### 🏅 Official Results Sync")
         if st.button("🔄 Fetch & Publish Official Placements"):
             if st.session_state.get("room_pin"):
