@@ -469,7 +469,7 @@ def get_target_analysis(row, target_df, has_targets):
             if v_c and v_c != "N/A": res.append(f"C: {v_c}")
             if v_r and v_r != "N/A": res.append(f"R: {v_r}")
             return " | ".join(res) if res else "No Targets"
-        return "⏳ Awaiting"
+        return ""
 
 # --- SMART TM PLACEMENT SCRAPER ENGINE ---
 def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
@@ -689,6 +689,10 @@ if page_selection == VIEW_COACH:
             current_race = live_races.iloc[st.session_state.race_idx]
             original_id = current_race.get("id", None)
             
+            # --- NEW: Calculate the target variance string ---
+            target_str = get_target_analysis(current_race, st.session_state["target_df"], not st.session_state["target_df"].empty)
+            target_html = f"<div style='margin-top: 8px; color: #4ade80; font-size: 1.1rem; font-weight: bold; background: #0f172a; padding: 6px 12px; border-radius: 8px; display: inline-block;'>{target_str}</div>" if target_str else ""
+            
             # 4. Build the Mobile Card UI
             st.markdown(f"""
             <div style="background-color: #1e293b; padding: 20px; border-radius: 12px; border-top: 5px solid #facc15; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; margin-bottom: 15px;">
@@ -698,14 +702,15 @@ if page_selection == VIEW_COACH:
                     <div><b>Heat:</b> {current_race.get('Heat', '')}</div>
                     <div><b>Lane:</b> {current_race.get('Lane', '')}</div>
                 </div>
-                <div style="margin-top: 10px; color: #94a3b8; font-size: 0.9rem;">
-                    Entry Time: {current_race.get('Entry Time', 'NT')}
+                <div style="margin-top: 15px; color: #94a3b8; font-size: 1.1rem;">
+                    Entry Time: <strong style="color: white;">{current_race.get('Entry Time', 'NT')}</strong>
                 </div>
+                {target_html}
             </div>
             """, unsafe_allow_html=True)
             
             # 5. The Input Fields
-            new_time = st.text_input("⏱ Enter Achieved Time (e.g. 1:05.23, DQ)", 
+            new_time = st.text_input("⏱ Enter Achieved Time (e.g. 1:05.23, DQ, DNC)", 
                                      value=current_race.get('Achieved Time', ''), 
                                      key=f"time_input_{original_id}_{st.session_state.race_idx}")
             
