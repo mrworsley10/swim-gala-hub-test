@@ -473,7 +473,6 @@ def get_target_analysis(row, target_df, has_targets):
 
 # --- SMART TM PLACEMENT SCRAPER ENGINE ---
 def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
-    """Scrapes official placements and matches them flawlessly using both Event Numbers and Raw Stroke Text."""
     if not gala_url or not room_pin: return 0, "Missing Gala URL or Room PIN."
     
     try:
@@ -482,7 +481,6 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
         resp = requests.get(gala_url, headers=headers, verify=False, timeout=10)
         soup = BeautifulSoup(resp.text, 'html.parser')
         
-        # Grab all event links
         links = [urljoin(gala_url, a['href']) for a in soup.find_all('a', href=True) if 'event' in a['href'].lower() or re.match(r'^\d+\.htm', a['href'])]
         for f in soup.find_all(['frame', 'iframe']):
             if f.get('src'):
@@ -502,7 +500,6 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
                 raw_stroke = ""
                 is_results = False
                 
-                # Scan page elements line by line to bypass messy HTML tables
                 for elem in psoup.find_all(['tr', 'pre', 'p', 'div', 'h1', 'h2', 'h3', 'h4']):
                     rows = []
                     if elem.name == 'tr':
@@ -516,7 +513,6 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
                         row_text = row_text.strip()
                         if not row_text: continue
                         
-                        # 1. Dynamically track Event Number & Stroke as we scroll down
                         m_evt = re.search(r'Event\s+(\d+)', row_text, re.IGNORECASE)
                         if m_evt: evt_num = m_evt.group(1)
                             
@@ -525,7 +521,6 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
                             
                         lower_text = row_text.lower()
                         
-                        # 2. Find "Place", "Pos", or "Rank" to confirm it's a Results table, not a Start List
                         if re.search(r'\b(place|pos|position|rank)\b', lower_text):
                             is_results = True
                             continue
@@ -533,14 +528,12 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
                             is_results = False
                             continue
                             
-                        # 3. Match the Club and Extract Placements
                         if is_results and (not target_club or target_club in lower_text):
                             m = re.search(r'^\s*(\d+)\.?\s+(?:\d+\s+)?([A-Za-z\-\'\s]+?)\s+\d{1,2}\s+', row_text)
                             if m:
                                 place = int(m.group(1))
                                 swimmer_name = m.group(2).strip()
                                 
-                                # Create Medals/Badges
                                 if place == 1: badge = "🥇 1st"
                                 elif place == 2: badge = "🥈 2nd"
                                 elif place == 3: badge = "🥉 3rd"
@@ -555,10 +548,8 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
                                 if len(parts) >= 2:
                                     first_name, last_name = parts[0], parts[-1]
                                     
-                                    # 4. Foolproof Database Sync
                                     res = None
                                     
-                                    # Attempt 1: Match by Exact Event Number
                                     if evt_num:
                                         res = supabase.table("live_gala_data").update({"official_placement": badge})\
                                             .eq("room_pin", str(room_pin))\
@@ -567,7 +558,6 @@ def scrape_and_update_all_placements(room_pin, gala_url, club_keyword=""):
                                             .ilike("event", f"%Event {evt_num}%")\
                                             .execute()
                                             
-                                    # Attempt 2 (Fallback): Match by Exact Stroke String from the website (e.g. "200m Freestyle")
                                     if raw_stroke and (not res or not res.data):
                                         res = supabase.table("live_gala_data").update({"official_placement": badge})\
                                             .eq("room_pin", str(room_pin))\
@@ -654,8 +644,11 @@ if not df.empty:
     df_final = compute_gala_schedule_times(df, session_start_map, pace_factor)
 else: df_final = df
 
+
+# --- ⏱ COACH RACE INFO VIEW (NEW SWIPE CARD INTERFACE) ---
 if page_selection == VIEW_COACH:
     if not df_final.empty:
+        # Calculate KPIs
         ach_u, not_u = df_final["Achieved Time"].astype(str).str.upper(), df_final["Coach Notes"].astype(str).str.upper()
         dq, dnc = int((ach_u.str.contains("DQ") | not_u.str.contains("DQ")).sum()), int((ach_u.str.contains("DNC|WD|WITHDRAWN") | not_u.str.contains("DNC|WD|WITHDRAWN")).sum())
         s_done = len(df_final[(df_final["Achieved Time"] != "") & (~ach_u.str.contains("DNC|WD|WITHDRAWN|DQ")) & (~not_u.str.contains("DNC|WD|WITHDRAWN|DQ"))])
@@ -672,31 +665,87 @@ if page_selection == VIEW_COACH:
         </div>
         """, unsafe_allow_html=True)
         
-        cfg = {"Heat": st.column_config.TextColumn("Heat", width="small"), "Lane": st.column_config.TextColumn("Lane", width="small"), "Age": st.column_config.TextColumn("Age", width="small"), "Entry Time": st.column_config.TextColumn("Entry Time", width="medium"), "Achieved Time": st.column_config.TextColumn("Achieved Time", width="medium"), "Swimmer": st.column_config.TextColumn("Swimmer", width="medium"), "Target +/-": st.column_config.TextColumn("Target +/-", width="large"), "Coach Notes": st.column_config.TextColumn("Coach Notes", width="large")}
+        st.markdown("### 📱 Poolside Time Logger")
         
-        for sess in sorted(df_final["Session"].unique()):
-            st.markdown(f"<h3>Session {sess} Input</h3>", unsafe_allow_html=True)
-            sess_df = df_final[df_final["Session"] == sess]
-            for event in sorted(sess_df["Event"].unique(), key=get_event_num):
-                edf = sess_df[sess_df["Event"] == event].sort_values(by=["_sort_heat", "_sort_lane"]).copy()
-                edf["Target +/-"] = [get_target_analysis(r, st.session_state["target_df"], not st.session_state["target_df"].empty) for _, r in edf.iterrows()]
-                with st.expander(f"🏊 {event} ({len(edf)} Swimmers)", expanded=True):
-                    edited = st.data_editor(edf[["Heat", "Lane", "Swimmer", "Age", "Entry Time", "Achieved Time", "Target +/-", "Coach Notes"]], key=f"s{sess}_{event}_{st.session_state['redraw_counter']}", disabled=["Heat", "Lane", "Swimmer", "Age", "Entry Time", "Target +/-"], column_config=cfg, hide_index=True, use_container_width=True)
-                    changes = False
-                    for _, r in edited.iterrows():
-                        mask = (st.session_state["gala_df"]["Session"] == sess) & (st.session_state["gala_df"]["Event"] == event) & (st.session_state["gala_df"]["Swimmer"] == r["Swimmer"]) & (st.session_state["gala_df"]["Heat"].astype(str) == str(r["Heat"]))
-                        ach, nts = format_time_input(str(r["Achieved Time"]) if pd.notna(r["Achieved Time"]) else ""), str(r["Coach Notes"]) if pd.notna(r["Coach Notes"]) else ""
-                        if ach != str(st.session_state["gala_df"].loc[mask, "Achieved Time"].values[0]):
-                            st.session_state["gala_df"].loc[mask, "Achieved Time"] = ach
-                            if st.session_state["room_pin"]: safe_update_db(st.session_state["gala_df"].loc[mask, "id"].values[0], "achieved_time", ach)
-                            changes = True
-                        if nts != str(st.session_state["gala_df"].loc[mask, "Coach Notes"].values[0]):
-                            st.session_state["gala_df"].loc[mask, "Coach Notes"] = nts
-                            if st.session_state["room_pin"]: safe_update_db(st.session_state["gala_df"].loc[mask, "id"].values[0], "coach_notes", nts)
-                            changes = True
-                    if changes: st.session_state['redraw_counter'] += 1; st.rerun()
-    else: st.info("👈 Load data to begin.")
+        # 1. Filter out withdrawn/DNC swimmers and sort chronologically by session, event number, heat, lane
+        live_races = df_final[~df_final["Achieved Time"].astype(str).str.upper().str.contains("DNC|WD|WITHDRAWN")].copy()
+        live_races["_event_num"] = live_races["Event"].apply(get_event_num)
+        live_races = live_races.sort_values(by=["Session", "_event_num", "_sort_heat", "_sort_lane"]).reset_index(drop=True)
+        
+        if live_races.empty:
+            st.success("All active races have been logged or withdrawn!")
+        else:
+            # 2. Initialize the playlist index
+            if "race_idx" not in st.session_state:
+                st.session_state.race_idx = 0
+                
+            # Ensure index doesn't go out of bounds if data refreshes or decreases
+            if st.session_state.race_idx >= len(live_races):
+                st.session_state.race_idx = len(live_races) - 1
+            if st.session_state.race_idx < 0:
+                st.session_state.race_idx = 0
 
+            # 3. Get the current swimmer's data
+            current_race = live_races.iloc[st.session_state.race_idx]
+            original_id = current_race.get("id", None)
+            
+            # 4. Build the Mobile Card UI
+            st.markdown(f"""
+            <div style="background-color: #1e293b; padding: 20px; border-radius: 12px; border-top: 5px solid #facc15; box-shadow: 0 4px 6px rgba(0,0,0,0.3); text-align: center; margin-bottom: 15px;">
+                <h4 style="color: #94a3b8; margin-bottom: 0;">Sess {current_race.get('Session', '')} | Event {current_race.get('Event', '')}</h4>
+                <h2 style="color: #ffffff; margin-top: 5px; font-weight: 900; font-size: 2rem;">{current_race.get('Swimmer', '')}</h2>
+                <div style="display: flex; justify-content: space-around; margin-top: 15px; color: #cbd5e1; font-size: 1.2rem;">
+                    <div><b>Heat:</b> {current_race.get('Heat', '')}</div>
+                    <div><b>Lane:</b> {current_race.get('Lane', '')}</div>
+                </div>
+                <div style="margin-top: 10px; color: #94a3b8; font-size: 0.9rem;">
+                    Entry Time: {current_race.get('Entry Time', 'NT')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 5. The Input Fields
+            new_time = st.text_input("⏱ Enter Achieved Time (e.g. 1:05.23, DQ)", 
+                                     value=current_race.get('Achieved Time', ''), 
+                                     key=f"time_input_{original_id}_{st.session_state.race_idx}")
+            
+            coach_notes = st.text_input("📝 Coach Notes (Optional)", 
+                                        value=current_race.get('Coach Notes', ''), 
+                                        key=f"notes_input_{original_id}_{st.session_state.race_idx}")
+            
+            # 6. Navigation & Save Buttons
+            col1, col2, col3 = st.columns([1, 1, 1])
+            
+            with col1:
+                if st.button("⬅️ Prev", use_container_width=True, disabled=(st.session_state.race_idx == 0)):
+                    st.session_state.race_idx -= 1
+                    st.rerun()
+                    
+            with col2:
+                # Save button updates the database and the dataframe
+                if st.button("💾 Save", type="primary", use_container_width=True):
+                    formatted_time = format_time_input(new_time)
+                    if original_id is not None:
+                        # Update DB
+                        safe_update_db(original_id, "achieved_time", formatted_time)
+                        safe_update_db(original_id, "coach_notes", coach_notes)
+                        # Update local dataframe
+                        mask = st.session_state["gala_df"]["id"] == original_id
+                        st.session_state["gala_df"].loc[mask, "Achieved Time"] = formatted_time
+                        st.session_state["gala_df"].loc[mask, "Coach Notes"] = coach_notes
+                        st.success("Saved!")
+                    else:
+                        st.warning("Upload data to cloud first to save.")
+                    
+            with col3:
+                if st.button("Next ➡️", use_container_width=True, disabled=(st.session_state.race_idx == len(live_races) - 1)):
+                    st.session_state.race_idx += 1
+                    st.rerun()
+    else: 
+        st.info("👈 Load data to begin.")
+
+
+# --- 📋 SWIMMER WALL PLANNER VIEW ---
 elif page_selection == VIEW_WALL:
     if not df_final.empty:
         ui, dl = f"## {club_filter.upper()} GALA SCHEDULE\n\n", f"{club_filter.upper()} GALA SCHEDULE\n{'='*65}\n"
@@ -712,6 +761,8 @@ elif page_selection == VIEW_WALL:
         st.markdown(ui)
         st.download_button("Download (.txt)", dl, "wall_schedule.txt")
 
+
+# --- 🚩 TM MARSHALLING INFO VIEW ---
 elif page_selection == VIEW_TM:
     if not df_final.empty:
         
