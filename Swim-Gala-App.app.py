@@ -706,41 +706,52 @@ if page_selection == VIEW_LOGGER:
             </div>
             """, unsafe_allow_html=True)
             
+            # --- THE AUTO-SAVE CALLBACK ---
+            def auto_save_inputs(orig_id, t_key, n_key):
+                raw_time = st.session_state.get(t_key, "")
+                raw_notes = st.session_state.get(n_key, "")
+                formatted_time = format_time_input(raw_time)
+                
+                if orig_id is not None:
+                    safe_update_db(orig_id, "achieved_time", formatted_time)
+                    safe_update_db(orig_id, "coach_notes", raw_notes)
+                    mask = st.session_state["gala_df"]["id"] == orig_id
+                    st.session_state["gala_df"].loc[mask, "Achieved Time"] = formatted_time
+                    st.session_state["gala_df"].loc[mask, "Coach Notes"] = raw_notes
+                    # Force the widget to display the formatted time instantly
+                    st.session_state[t_key] = formatted_time
+                    st.session_state[n_key] = raw_notes
+
+            time_key = f"time_input_{original_id}_{st.session_state.race_idx}"
+            notes_key = f"notes_input_{original_id}_{st.session_state.race_idx}"
+            
             new_time = st.text_input("⏱ Enter Achieved Time (e.g. 1:05.23, DQ, DNC)", 
                                      value=current_race.get('Achieved Time', ''), 
-                                     key=f"time_input_{original_id}_{st.session_state.race_idx}")
+                                     key=time_key,
+                                     on_change=auto_save_inputs,
+                                     args=(original_id, time_key, notes_key))
             
             coach_notes = st.text_input("📝 Coach Notes (Optional)", 
                                         value=current_race.get('Coach Notes', ''), 
-                                        key=f"notes_input_{original_id}_{st.session_state.race_idx}")
+                                        key=notes_key,
+                                        on_change=auto_save_inputs,
+                                        args=(original_id, time_key, notes_key))
             
-            col1, col2, col3 = st.columns([1, 1, 1])
+            # 6. Streamlined Navigation Buttons (Save button removed)
+            col1, col2 = st.columns([1, 1])
             
             with col1:
-                if st.button("⬅️ Prev", use_container_width=True, disabled=(st.session_state.race_idx == 0)):
+                if st.button("⬅️ Prev Swimmer", use_container_width=True, disabled=(st.session_state.race_idx == 0)):
                     st.session_state.race_idx -= 1
                     st.rerun()
                     
             with col2:
-                if st.button("💾 Save", type="primary", use_container_width=True):
-                    formatted_time = format_time_input(new_time)
-                    if original_id is not None:
-                        safe_update_db(original_id, "achieved_time", formatted_time)
-                        safe_update_db(original_id, "coach_notes", coach_notes)
-                        mask = st.session_state["gala_df"]["id"] == original_id
-                        st.session_state["gala_df"].loc[mask, "Achieved Time"] = formatted_time
-                        st.session_state["gala_df"].loc[mask, "Coach Notes"] = coach_notes
-                        st.success("Saved!")
-                    else:
-                        st.warning("Upload data to cloud first to save.")
-                    
-            with col3:
-                if st.button("Next ➡️", use_container_width=True, disabled=(st.session_state.race_idx == len(live_races) - 1)):
+                # Made this the primary highlighted action button for the coach
+                if st.button("Next Swimmer ➡️", type="primary", use_container_width=True, disabled=(st.session_state.race_idx == len(live_races) - 1)):
                     st.session_state.race_idx += 1
                     st.rerun()
     else: 
         st.info("👈 Load data to begin.")
-
 
 # --- 📊 COACH OVERVIEW (READ-ONLY GRID) ---
 elif page_selection == VIEW_OVERVIEW:
