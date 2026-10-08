@@ -453,22 +453,23 @@ def get_target_analysis(row, target_df, has_targets):
         if not match.empty:
             c_sec = time_to_seconds(match.iloc[0].get('County_Time', ""))
             r_sec = time_to_seconds(match.iloc[0].get('Regional_Time', ""))
+            
     if ach_sec is not None:
         res = []
         v = calculate_variance(ach_sec, ent_sec)
         if v and v != "N/A": res.append(f"PB: {v}")
         if has_targets:
             v_c, v_r = calculate_variance(ach_sec, c_sec), calculate_variance(ach_sec, r_sec)
-            if v_c and v_c != "N/A": res.append(f"C: {v_c}")
-            if v_r and v_r != "N/A": res.append(f"R: {v_r}")
-        return " | ".join(res) if res else "Logged"
+            if v_c and v_c != "N/A": res.append(f"County: {v_c}")
+            if v_r and v_r != "N/A": res.append(f"Region: {v_r}")
+        return "<br>".join(res) if res else "Logged"
     else:
         if has_targets:
             res = []
             v_c, v_r = calculate_variance(ent_sec, c_sec), calculate_variance(ent_sec, r_sec)
-            if v_c and v_c != "N/A": res.append(f"C: {v_c}")
-            if v_r and v_r != "N/A": res.append(f"R: {v_r}")
-            return " | ".join(res) if res else "No Targets"
+            if v_c and v_c != "N/A": res.append(f"County: {v_c}")
+            if v_r and v_r != "N/A": res.append(f"Region: {v_r}")
+            return "<br>".join(res) if res else "No Targets"
         return ""
 
 # --- SMART TM PLACEMENT SCRAPER ENGINE ---
@@ -689,9 +690,9 @@ if page_selection == VIEW_COACH:
             current_race = live_races.iloc[st.session_state.race_idx]
             original_id = current_race.get("id", None)
             
-            # --- NEW: Calculate the target variance string ---
+            # --- NEW: Calculate the target variance string (now stacked vertically) ---
             target_str = get_target_analysis(current_race, st.session_state["target_df"], not st.session_state["target_df"].empty)
-            target_html = f"<div style='margin-top: 8px; color: #4ade80; font-size: 1.1rem; font-weight: bold; background: #0f172a; padding: 6px 12px; border-radius: 8px; display: inline-block;'>{target_str}</div>" if target_str else ""
+            target_html = f"<div style='margin-top: 8px; color: #4ade80; font-size: 1.1rem; font-weight: bold; background: #0f172a; padding: 10px; border-radius: 8px; display: inline-block; line-height: 1.6;'>{target_str}</div>" if target_str else ""
             
             # 4. Build the Mobile Card UI
             st.markdown(f"""
